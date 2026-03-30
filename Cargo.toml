@@ -1,0 +1,25 @@
+[package]
+name = "modular-agent-mattermost"
+version = "0.1.0"
+description = "Mattermost Agents for Modular Agent"
+authors = ["Akira Ishino <akira@lumilab.jp>"]
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+
+[dependencies]
+chrono = "0.4"
+im = "15.1.0"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt", "time"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
+tracing = "0.1"
+url = "2"
+
+modular-agent-core = "0.23.1"
+
+[features]
+default = ["image"]
+image = ["modular-agent-core/image", "reqwest/multipart"]
