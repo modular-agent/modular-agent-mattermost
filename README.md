@@ -12,23 +12,6 @@ English | [日本語](README_ja.md)
 - **Listener** — Listen to messages in real-time via WebSocket with auto-reconnect
 - **ToMessage** — Convert Mattermost message objects to LLM Message format
 
-## Installation
-
-Two changes to add this package to [`modular-agent-desktop`](https://github.com/modular-agent/modular-agent-desktop):
-
-1. **`modular-agent-desktop/src-tauri/Cargo.toml`** — add dependency:
-
-   ```toml
-   modular-agent-mattermost = { path = "../../modular-agent-mattermost" }
-   ```
-
-2. **`modular-agent-desktop/src-tauri/src/lib.rs`** — add import:
-
-   ```rust
-   #[allow(unused_imports)]
-   use modular_agent_mattermost;
-   ```
-
 ## Setup
 
 ### Global Config or Environment Variables

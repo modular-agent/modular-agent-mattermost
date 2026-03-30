@@ -12,23 +12,6 @@ Modular Agent 用の Mattermost 連携エージェント。メッセージ送信
 - **Listener** — WebSocket でリアルタイムにメッセージを受信（自動再接続付き）
 - **ToMessage** — Mattermost メッセージオブジェクトを LLM 用 Message 形式に変換
 
-## インストール
-
-[`modular-agent-desktop`](https://github.com/modular-agent/modular-agent-desktop) に追加するには、2つの変更が必要です:
-
-1. **`modular-agent-desktop/src-tauri/Cargo.toml`** — 依存関係を追加:
-
-   ```toml
-   modular-agent-mattermost = { path = "../../modular-agent-mattermost" }
-   ```
-
-2. **`modular-agent-desktop/src-tauri/src/lib.rs`** — インポートを追加:
-
-   ```rust
-   #[allow(unused_imports)]
-   use modular_agent_mattermost;
-   ```
-
 ## セットアップ
 
 ### グローバル設定または環境変数
