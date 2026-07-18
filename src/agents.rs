@@ -160,11 +160,8 @@ impl AsAgent for MattermostPostAgent {
         if let Some(msg) = value.as_message()
             && let Some(ref image) = msg.image
         {
-            let message_text = if msg.content.is_empty() {
-                None
-            } else {
-                Some(msg.content.clone())
-            };
+            let text = msg.text();
+            let message_text = if text.is_empty() { None } else { Some(text) };
             let result =
                 upload_image_and_post(&client, image, &channel_id, message_text, None).await?;
             return self.output(ctx, PORT_RESULT, result).await;
@@ -231,7 +228,7 @@ async fn upload_image_and_post(
 fn extract_message_content(value: &AgentValue) -> Result<(String, Option<String>), AgentError> {
     match value {
         AgentValue::String(s) => Ok((s.to_string(), None)),
-        AgentValue::Message(msg) => Ok((msg.content.clone(), None)),
+        AgentValue::Message(msg) => Ok((msg.text(), None)),
         AgentValue::Object(obj) => {
             let text = obj
                 .get("text")
@@ -251,7 +248,7 @@ fn extract_message_content(value: &AgentValue) -> Result<(String, Option<String>
                 .filter_map(|v| {
                     v.as_str()
                         .map(String::from)
-                        .or_else(|| v.as_message().map(|m| m.content.clone()))
+                        .or_else(|| v.as_message().map(|m| m.text()))
                 })
                 .collect();
             Ok((texts.join("\n"), None))
