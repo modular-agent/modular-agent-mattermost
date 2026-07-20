@@ -1,6 +1,6 @@
 [package]
 name = "modular-agent-mattermost"
-version = "0.1.0"
+version = "0.2.0"
 description = "Mattermost Agents for Modular Agent"
 authors = ["Akira Ishino <akira@lumilab.jp>"]
 edition = "2024"
@@ -18,11 +18,8 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 tracing = "0.1"
 url = "2"
 
-modular-agent-core = "0.23.1"
+modular-agent-core = "0.24.0"
 
 [features]
 default = ["image"]
 image = ["modular-agent-core/image", "reqwest/multipart"]
-
-[patch.crates-io]
-modular-agent-core = { path = "../modular-agent-core/modular-agent-core" }
