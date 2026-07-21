@@ -18,7 +18,7 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 tracing = "0.1"
 url = "2"
 
-modular-agent-core = "0.24.0"
+modular-agent-core = "0.25.0"
 
 [features]
 default = ["image"]
