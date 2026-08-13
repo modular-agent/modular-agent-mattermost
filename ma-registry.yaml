@@ -1,0 +1,7 @@
+name: modular-agent-mattermost
+description: Mattermost messaging agents
+available_features:
+  - image
+default_features:
+  - image
+default_for: [desktop, cli]
