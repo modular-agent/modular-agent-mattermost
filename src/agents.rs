@@ -261,9 +261,11 @@ fn extract_message_content(
             let texts: Vec<String> = arr
                 .iter()
                 .filter_map(|v| {
-                    v.as_str()
-                        .map(String::from)
-                        .or_else(|| v.as_message().map(|m| format_message(m, show_tool_calls)))
+                    v.as_str().map(String::from).or_else(|| {
+                        v.as_message()
+                            .filter(|m| !m.streaming)
+                            .map(|m| format_message(m, show_tool_calls))
+                    })
                 })
                 .filter(|s| !s.is_empty())
                 .collect();
