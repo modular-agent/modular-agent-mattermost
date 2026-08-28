@@ -42,18 +42,18 @@ Alternatively, create a personal access token at **Profile > Security > Personal
 
 ## Mattermost/Post
 
-Posts messages to Mattermost channels. Markdown is passed through as-is since Mattermost supports standard Markdown natively.
+Posts messages to Mattermost channels. Markdown is passed through as-is since Mattermost supports standard Markdown natively. Messages that are empty after formatting, and partial streaming responses, are skipped without posting.
 
 ### Configuration
 
 | Config | Type | Default | Description |
 | ------ | ---- | ------- | ----------- |
 | `channel_id` | string | "" | The Mattermost channel ID to post to |
+| `show_tool_calls` | boolean | false | Render tool calls in messages as "Tool Call: \<name\>" lines |
 
 ### Ports
 
 - **Input**: `message` — String, Message, object with `text`/`root_id` fields, array, or image (AgentValue::Image)
-- **Output**: `result` — Object containing `ok`, `post_id`, `channel` on success
 
 ### Image Upload
 
@@ -62,7 +62,6 @@ When an image (AgentValue::Image) or a Message with an attached image is receive
 ### Thread Replies
 
 - Input objects accept `root_id` to specify the parent post ID for threaded replies
-- Output uses `post_id` key with the post ID value
 
 ## Mattermost/History
 

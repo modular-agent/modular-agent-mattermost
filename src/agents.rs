@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
 
 use futures_util::StreamExt;
-use im::{Vector, hashmap};
+use im::Vector;
 use modular_agent_core::photon_rs::PhotonImage;
 use modular_agent_core::{
     Agent, AgentContext, AgentData, AgentError, AgentOutput, AgentSpec, AgentValue, AsAgent,
@@ -18,7 +18,6 @@ use crate::client::{CreatePostRequest, MattermostClient, MattermostPost, WsEvent
 
 static CATEGORY: &str = "Mattermost";
 
-static PORT_RESULT: &str = "result";
 static PORT_UNIT: &str = "unit";
 static PORT_MESSAGE: &str = "message";
 static PORT_VALUE: &str = "value";
@@ -30,6 +29,7 @@ static CONFIG_TEAM_ID: &str = "team_id";
 static CONFIG_LIMIT: &str = "limit";
 static CONFIG_MATTERMOST_TOKEN: &str = "mattermost_token";
 static CONFIG_SERVER_URL: &str = "server_url";
+static CONFIG_SHOW_TOOL_CALLS: &str = "show_tool_calls";
 
 // ---------------------------------------------------------------------------
 // Client caching (keyed by server_url + token)
@@ -96,13 +96,15 @@ fn build_client(ma: &ModularAgent) -> Result<MattermostClient, AgentError> {
 ///
 /// Sends text messages, threaded replies, and images to a specified channel.
 /// Markdown is passed through as-is since Mattermost supports standard Markdown natively.
+/// Messages that are empty after formatting, and partial streaming responses,
+/// are skipped without posting.
 ///
 /// # Ports
 /// - Input `message`: String, Message, object with `text`/`root_id` fields, array, or image
-/// - Output `result`: Object containing `ok`, `post_id`, `channel` on success
 ///
 /// # Configuration
 /// - `channel_id`: The Mattermost channel ID to post to
+/// - `show_tool_calls`: Render tool calls in messages as "Tool Call: <name>" lines
 ///
 /// # Global Configuration
 /// - `mattermost_token`: Bot token or personal access token
@@ -110,13 +112,13 @@ fn build_client(ma: &ModularAgent) -> Result<MattermostClient, AgentError> {
 ///
 /// # Example
 /// Given input `"Hello, world!"` with channel_id configured, posts the message
-/// and outputs `{ok: true, post_id: "<post_id>", channel: "<channel_id>"}`.
+/// to the channel.
 #[modular_agent(
     title = "Post",
     category = CATEGORY,
     inputs = [PORT_MESSAGE],
-    outputs = [PORT_RESULT],
     string_config(name = CONFIG_CHANNEL_ID),
+    boolean_config(name = CONFIG_SHOW_TOOL_CALLS, title = "Show Tool Calls", detail),
     string_global_config(name = CONFIG_SERVER_URL, title = "Mattermost Server URL"),
     custom_global_config(name = CONFIG_MATTERMOST_TOKEN, type_ = "password", default = AgentValue::string(""), title = "Mattermost Token"),
 )]
@@ -134,7 +136,7 @@ impl AsAgent for MattermostPostAgent {
 
     async fn process(
         &mut self,
-        ctx: AgentContext,
+        _ctx: AgentContext,
         _port: String,
         value: AgentValue,
     ) -> Result<(), AgentError> {
@@ -145,14 +147,21 @@ impl AsAgent for MattermostPostAgent {
                 "Channel ID not configured".to_string(),
             ));
         }
+        let show_tool_calls = config.get_bool_or_default(CONFIG_SHOW_TOOL_CALLS);
+
+        // Skip partial streaming responses
+        if let Some(msg) = value.as_message()
+            && msg.streaming
+        {
+            return Ok(());
+        }
 
         let client = build_client(self.ma())?;
 
         // Handle image upload
         #[cfg(feature = "image")]
         if let Some(image) = value.as_image() {
-            let result = upload_image_and_post(&client, image, &channel_id, None, None).await?;
-            return self.output(ctx, PORT_RESULT, result).await;
+            return upload_image_and_post(&client, image, &channel_id, None, None).await;
         }
 
         // Handle Message with image
@@ -160,31 +169,25 @@ impl AsAgent for MattermostPostAgent {
         if let Some(msg) = value.as_message()
             && let Some(ref image) = msg.image
         {
-            let text = msg.text();
+            let text = format_message(msg, show_tool_calls);
             let message_text = if text.is_empty() { None } else { Some(text) };
-            let result =
-                upload_image_and_post(&client, image, &channel_id, message_text, None).await?;
-            return self.output(ctx, PORT_RESULT, result).await;
+            return upload_image_and_post(&client, image, &channel_id, message_text, None).await;
         }
 
-        let (text, root_id) = extract_message_content(&value)?;
+        let (text, root_id) = extract_message_content(&value, show_tool_calls)?;
+        if text.is_empty() {
+            return Ok(());
+        }
 
         let request = CreatePostRequest {
-            channel_id: channel_id.clone(),
+            channel_id,
             message: text,
             root_id,
             file_ids: vec![],
         };
 
-        let post = client.create_post(&request).await?;
-
-        let result = AgentValue::object(hashmap! {
-            "ok".into() => AgentValue::boolean(true),
-            "post_id".into() => AgentValue::string(post.id),
-            "channel".into() => AgentValue::string(post.channel_id),
-        });
-
-        self.output(ctx, PORT_RESULT, result).await
+        client.create_post(&request).await?;
+        Ok(())
     }
 }
 
@@ -195,7 +198,7 @@ async fn upload_image_and_post(
     channel_id: &str,
     message: Option<String>,
     root_id: Option<String>,
-) -> Result<AgentValue, AgentError> {
+) -> Result<(), AgentError> {
     let png_bytes = image.get_bytes();
     let filename = format!("image_{}.png", chrono::Utc::now().timestamp_millis());
 
@@ -216,19 +219,31 @@ async fn upload_image_and_post(
         file_ids,
     };
 
-    let post = client.create_post(&request).await?;
-
-    Ok(AgentValue::object(hashmap! {
-        "ok".into() => AgentValue::boolean(true),
-        "post_id".into() => AgentValue::string(post.id),
-        "channel".into() => AgentValue::string(post.channel_id),
-    }))
+    client.create_post(&request).await?;
+    Ok(())
 }
 
-fn extract_message_content(value: &AgentValue) -> Result<(String, Option<String>), AgentError> {
+fn format_message(msg: &Message, show_tool_calls: bool) -> String {
+    let mut parts: Vec<String> = vec![];
+    let text = msg.text();
+    if !text.is_empty() {
+        parts.push(text);
+    }
+    if show_tool_calls && let Some(tool_calls) = &msg.tool_calls {
+        for call in tool_calls {
+            parts.push(format!("**Tool Call: {}**", call.function.name));
+        }
+    }
+    parts.join("\n\n")
+}
+
+fn extract_message_content(
+    value: &AgentValue,
+    show_tool_calls: bool,
+) -> Result<(String, Option<String>), AgentError> {
     match value {
         AgentValue::String(s) => Ok((s.to_string(), None)),
-        AgentValue::Message(msg) => Ok((msg.text(), None)),
+        AgentValue::Message(msg) => Ok((format_message(msg, show_tool_calls), None)),
         AgentValue::Object(obj) => {
             let text = obj
                 .get("text")
@@ -248,8 +263,9 @@ fn extract_message_content(value: &AgentValue) -> Result<(String, Option<String>
                 .filter_map(|v| {
                     v.as_str()
                         .map(String::from)
-                        .or_else(|| v.as_message().map(|m| m.text()))
+                        .or_else(|| v.as_message().map(|m| format_message(m, show_tool_calls)))
                 })
+                .filter(|s| !s.is_empty())
                 .collect();
             Ok((texts.join("\n"), None))
         }

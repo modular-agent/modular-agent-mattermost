@@ -42,18 +42,18 @@ Modular Agent 用の Mattermost 連携エージェント。メッセージ送信
 
 ## Mattermost/Post
 
-Mattermost チャンネルにメッセージを送信します。Mattermost は標準 Markdown をネイティブサポートしているため、Markdown はそのまま渡されます。
+Mattermost チャンネルにメッセージを送信します。Mattermost は標準 Markdown をネイティブサポートしているため、Markdown はそのまま渡されます。整形後に空になるメッセージとストリーミング途中の部分メッセージは投稿せずスキップします。
 
 ### 設定
 
 | 設定 | 型 | デフォルト | 説明 |
 | ---- | -- | ---------- | ---- |
 | `channel_id` | string | "" | 送信先の Mattermost チャンネル ID |
+| `show_tool_calls` | boolean | false | メッセージ内のツール呼び出しを「Tool Call: \<name\>」行として表示 |
 
 ### ポート
 
 - **入力**: `message` — String、Message、`text`/`root_id` フィールドを持つオブジェクト、配列、または画像（AgentValue::Image）
-- **出力**: `result` — 成功時に `ok`、`post_id`、`channel` を含むオブジェクト
 
 ### 画像アップロード
 
@@ -62,7 +62,6 @@ Mattermost チャンネルにメッセージを送信します。Mattermost は�
 ### スレッド返信
 
 - 入力オブジェクトの `root_id` でスレッド返信先の親投稿 ID を指定します
-- 出力は `post_id` キーに投稿 ID を格納します
 
 ## Mattermost/History
 
