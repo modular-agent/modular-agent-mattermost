@@ -1,5 +1,5 @@
 name: modular-agent-mattermost
-description: Mattermost messaging agents
+description: Mattermost messaging modules
 available_features:
   - image
 default_features:

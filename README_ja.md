@@ -1,6 +1,6 @@
-# Mattermost Agents for Modular Agent
+# Mattermost Modules for Modular Agent
 
-Modular Agent 用の Mattermost 連携エージェント。メッセージ送信、履歴取得、チャンネル一覧、WebSocket によるリアルタイムイベント受信を提供します。
+Modular Agent 用の Mattermost 連携モジュール。メッセージ送信、履歴取得、チャンネル一覧、WebSocket によるリアルタイムイベント受信を提供します。
 
 [English](README.md) | 日本語
 
@@ -31,14 +31,14 @@ Modular Agent 用の Mattermost 連携エージェント。メッセージ送信
 
 ### ID の確認方法
 
-- **チャンネル ID**: チャンネルを開き、チャンネル名のヘッダーをクリックすると表示されるダイアログから ID をコピーできます。または Channels エージェントを使って全チャンネルの ID を一覧取得できます。
+- **チャンネル ID**: チャンネルを開き、チャンネル名のヘッダーをクリックすると表示されるダイアログから ID をコピーできます。または Channels モジュールを使って全チャンネルの ID を一覧取得できます。
 - **チーム ID**: API（トークン付きで `GET /api/v4/teams`）または **システムコンソール > チーム**（管理者のみ）から確認できます。
 
 ## Feature Flags
 
 | Feature | デフォルト | 説明 |
 | ------- | ---------- | ---- |
-| `image` | Yes | Post と Listener エージェントの画像アップロード・ダウンロード対応 |
+| `image` | Yes | Post と Listener モジュールの画像アップロード・ダウンロード対応 |
 
 ## Mattermost/Post
 
@@ -53,11 +53,11 @@ Mattermost チャンネルにメッセージを送信します。Mattermost は�
 
 ### ポート
 
-- **入力**: `message` — String、Message、`text`/`root_id` フィールドを持つオブジェクト、配列、または画像（AgentValue::Image）
+- **入力**: `message` — String、Message、`text`/`root_id` フィールドを持つオブジェクト、配列、または画像（Value::Image）
 
 ### 画像アップロード
 
-画像（AgentValue::Image）または画像が添付された Message を受信すると、PNG ファイルとしてアップロードし投稿に添付します。`image` feature flag（デフォルトで有効）が必要です。
+画像（Value::Image）または画像が添付された Message を受信すると、PNG ファイルとしてアップロードし投稿に添付します。`image` feature flag（デフォルトで有効）が必要です。
 
 ### スレッド返信
 
@@ -101,7 +101,7 @@ Mattermost の投稿 ID は時系列ソートに使えないため、`create_at`
 
 ## Mattermost/Listener
 
-ソースエージェント（入力なし）。WebSocket 経由で Mattermost のメッセージをリアルタイムに受信します。ワークフロー開始時にリスニングを開始し、メッセージを受信するたびに出力します。切断時は指数バックオフ（1秒〜30秒）で自動再接続します。認証失敗時はリトライを停止します。
+ソースモジュール（入力なし）。WebSocket 経由で Mattermost のメッセージをリアルタイムに受信します。ワークフロー開始時にリスニングを開始し、メッセージを受信するたびに出力します。切断時は指数バックオフ（1秒〜30秒）で自動再接続します。認証失敗時はリトライを停止します。
 
 ### 設定
 
@@ -115,12 +115,12 @@ Mattermost の投稿 ID は時系列ソートに使えないため、`create_at`
 
 ## Mattermost/ToMessage
 
-Mattermost のメッセージオブジェクトを LLM エージェント向けの AgentValue::Message 形式に変換します。
+Mattermost のメッセージオブジェクトを LLM モジュール向けの Value::Message 形式に変換します。
 
 ### ポート
 
 - **入力**: `value` — 単一のメッセージオブジェクトまたはメッセージオブジェクトの配列
-- **出力**: `message` — AgentValue::Message または AgentValue::Message の配列
+- **出力**: `message` — Value::Message または Value::Message の配列
 
 ## アーキテクチャ
 

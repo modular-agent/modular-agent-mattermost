@@ -8,8 +8,8 @@ use futures_util::StreamExt;
 use im::Vector;
 use modular_agent_core::photon_rs::PhotonImage;
 use modular_agent_core::{
-    Agent, AgentContext, AgentData, AgentError, AgentOutput, AgentSpec, AgentValue, AsAgent,
-    Message, ModularAgent, async_trait, modular_agent,
+    AsModule, Error, Message, ModularAgent, Module, ModuleContext, ModuleData, ModuleOutput,
+    ModuleSpec, Result, Value, async_trait, modular_agent,
 };
 use tokio::sync::mpsc;
 use tracing::error;
@@ -41,7 +41,7 @@ fn get_client_map() -> &'static Mutex<BTreeMap<String, MattermostClient>> {
     CLIENT_MAP.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
-fn get_cached_client(server_url: &str, token: &str) -> Result<MattermostClient, AgentError> {
+fn get_cached_client(server_url: &str, token: &str) -> Result<MattermostClient> {
     let key = format!("{}\0{}", server_url, token);
     let mut map = get_client_map().lock().unwrap();
     if let Some(client) = map.get(&key) {
@@ -56,43 +56,43 @@ fn get_cached_client(server_url: &str, token: &str) -> Result<MattermostClient, 
 // Config helpers
 // ---------------------------------------------------------------------------
 
-fn get_token(ma: &ModularAgent) -> Result<String, AgentError> {
+fn get_token(ma: &ModularAgent) -> Result<String> {
     if let Some(global_token) = ma
-        .get_global_configs(MattermostPostAgent::DEF_NAME)
+        .get_global_configs(MattermostPostModule::DEF_NAME)
         .and_then(|cfg| cfg.get_string(CONFIG_MATTERMOST_TOKEN).ok())
         .filter(|key| !key.is_empty())
     {
         Ok(global_token)
     } else {
         env::var("MATTERMOST_TOKEN")
-            .map_err(|_| AgentError::InvalidValue("MATTERMOST_TOKEN not set".to_string()))
+            .map_err(|_| Error::InvalidValue("MATTERMOST_TOKEN not set".to_string()))
     }
 }
 
-fn get_server_url(ma: &ModularAgent) -> Result<String, AgentError> {
+fn get_server_url(ma: &ModularAgent) -> Result<String> {
     if let Some(global_url) = ma
-        .get_global_configs(MattermostPostAgent::DEF_NAME)
+        .get_global_configs(MattermostPostModule::DEF_NAME)
         .and_then(|cfg| cfg.get_string(CONFIG_SERVER_URL).ok())
         .filter(|url| !url.is_empty())
     {
         Ok(global_url)
     } else {
         env::var("MATTERMOST_URL")
-            .map_err(|_| AgentError::InvalidValue("MATTERMOST_URL not set".to_string()))
+            .map_err(|_| Error::InvalidValue("MATTERMOST_URL not set".to_string()))
     }
 }
 
-fn build_client(ma: &ModularAgent) -> Result<MattermostClient, AgentError> {
+fn build_client(ma: &ModularAgent) -> Result<MattermostClient> {
     let token = get_token(ma)?;
     let server_url = get_server_url(ma)?;
     get_cached_client(&server_url, &token)
 }
 
 // ---------------------------------------------------------------------------
-// MattermostPostAgent
+// MattermostPostModule
 // ---------------------------------------------------------------------------
 
-/// Agent for posting messages to Mattermost channels.
+/// Module for posting messages to Mattermost channels.
 ///
 /// Sends text messages, threaded replies, and images to a specified channel.
 /// Markdown is passed through as-is since Mattermost supports standard Markdown natively.
@@ -120,32 +120,25 @@ fn build_client(ma: &ModularAgent) -> Result<MattermostClient, AgentError> {
     string_config(name = CONFIG_CHANNEL_ID),
     boolean_config(name = CONFIG_SHOW_TOOL_CALLS, title = "Show Tool Calls", detail),
     string_global_config(name = CONFIG_SERVER_URL, title = "Mattermost Server URL"),
-    custom_global_config(name = CONFIG_MATTERMOST_TOKEN, type_ = "password", default = AgentValue::string(""), title = "Mattermost Token"),
+    custom_global_config(name = CONFIG_MATTERMOST_TOKEN, type_ = "password", default = Value::string(""), title = "Mattermost Token"),
 )]
-struct MattermostPostAgent {
-    data: AgentData,
+struct MattermostPostModule {
+    data: ModuleData,
 }
 
 #[async_trait]
-impl AsAgent for MattermostPostAgent {
-    fn new(ma: ModularAgent, id: String, spec: AgentSpec) -> Result<Self, AgentError> {
+impl AsModule for MattermostPostModule {
+    fn new(ma: ModularAgent, id: String, spec: ModuleSpec) -> Result<Self> {
         Ok(Self {
-            data: AgentData::new(ma, id, spec),
+            data: ModuleData::new(ma, id, spec),
         })
     }
 
-    async fn process(
-        &mut self,
-        _ctx: AgentContext,
-        _port: String,
-        value: AgentValue,
-    ) -> Result<(), AgentError> {
+    async fn process(&mut self, _ctx: ModuleContext, _port: String, value: Value) -> Result<()> {
         let config = self.configs()?;
         let channel_id = config.get_string(CONFIG_CHANNEL_ID)?;
         if channel_id.is_empty() {
-            return Err(AgentError::InvalidValue(
-                "Channel ID not configured".to_string(),
-            ));
+            return Err(Error::InvalidValue("Channel ID not configured".to_string()));
         }
         let show_tool_calls = config.get_bool_or_default(CONFIG_SHOW_TOOL_CALLS);
 
@@ -198,7 +191,7 @@ async fn upload_image_and_post(
     channel_id: &str,
     message: Option<String>,
     root_id: Option<String>,
-) -> Result<(), AgentError> {
+) -> Result<()> {
     let png_bytes = image.get_bytes();
     let filename = format!("image_{}.png", chrono::Utc::now().timestamp_millis());
 
@@ -238,13 +231,13 @@ fn format_message(msg: &Message, show_tool_calls: bool) -> String {
 }
 
 fn extract_message_content(
-    value: &AgentValue,
+    value: &Value,
     show_tool_calls: bool,
-) -> Result<(String, Option<String>), AgentError> {
+) -> Result<(String, Option<String>)> {
     match value {
-        AgentValue::String(s) => Ok((s.to_string(), None)),
-        AgentValue::Message(msg) => Ok((format_message(msg, show_tool_calls), None)),
-        AgentValue::Object(obj) => {
+        Value::String(s) => Ok((s.to_string(), None)),
+        Value::Message(msg) => Ok((format_message(msg, show_tool_calls), None)),
+        Value::Object(obj) => {
             let text = obj
                 .get("text")
                 .and_then(|v| v.as_str())
@@ -257,7 +250,7 @@ fn extract_message_content(
                 .map(String::from);
             Ok((text, root_id))
         }
-        AgentValue::Array(arr) => {
+        Value::Array(arr) => {
             let texts: Vec<String> = arr
                 .iter()
                 .filter_map(|v| {
@@ -279,10 +272,10 @@ fn extract_message_content(
 }
 
 // ---------------------------------------------------------------------------
-// MattermostHistoryAgent
+// MattermostHistoryModule
 // ---------------------------------------------------------------------------
 
-/// Agent for fetching message history from a Mattermost channel.
+/// Module for fetching message history from a Mattermost channel.
 ///
 /// Retrieves recent posts from a channel, ordered by most recent first.
 ///
@@ -301,30 +294,23 @@ fn extract_message_content(
     string_config(name = CONFIG_CHANNEL_ID),
     integer_config(name = CONFIG_LIMIT),
 )]
-struct MattermostHistoryAgent {
-    data: AgentData,
+struct MattermostHistoryModule {
+    data: ModuleData,
 }
 
 #[async_trait]
-impl AsAgent for MattermostHistoryAgent {
-    fn new(ma: ModularAgent, id: String, spec: AgentSpec) -> Result<Self, AgentError> {
+impl AsModule for MattermostHistoryModule {
+    fn new(ma: ModularAgent, id: String, spec: ModuleSpec) -> Result<Self> {
         Ok(Self {
-            data: AgentData::new(ma, id, spec),
+            data: ModuleData::new(ma, id, spec),
         })
     }
 
-    async fn process(
-        &mut self,
-        ctx: AgentContext,
-        _port: String,
-        _value: AgentValue,
-    ) -> Result<(), AgentError> {
+    async fn process(&mut self, ctx: ModuleContext, _port: String, _value: Value) -> Result<()> {
         let config = self.configs()?;
         let channel_id = config.get_string(CONFIG_CHANNEL_ID)?;
         if channel_id.is_empty() {
-            return Err(AgentError::InvalidValue(
-                "Channel ID not configured".to_string(),
-            ));
+            return Err(Error::InvalidValue("Channel ID not configured".to_string()));
         }
 
         let limit = config.get_integer_or_default(CONFIG_LIMIT);
@@ -333,34 +319,33 @@ impl AsAgent for MattermostHistoryAgent {
         let client = build_client(self.ma())?;
         let posts = client.get_channel_posts(&channel_id, limit).await?;
 
-        let messages: Vector<AgentValue> = posts.iter().map(post_to_agent_value).collect();
+        let messages: Vector<Value> = posts.iter().map(post_to_value).collect();
 
-        self.output(ctx, PORT_VALUES, AgentValue::array(messages))
-            .await
+        self.output(ctx, PORT_VALUES, Value::array(messages)).await
     }
 }
 
-fn post_to_agent_value(post: &MattermostPost) -> AgentValue {
+fn post_to_value(post: &MattermostPost) -> Value {
     let mut obj = im::HashMap::new();
 
-    obj.insert("text".into(), AgentValue::string(post.message.clone()));
-    obj.insert("user".into(), AgentValue::string(post.user_id.clone()));
-    obj.insert("post_id".into(), AgentValue::string(post.id.clone()));
+    obj.insert("text".into(), Value::string(post.message.clone()));
+    obj.insert("user".into(), Value::string(post.user_id.clone()));
+    obj.insert("post_id".into(), Value::string(post.id.clone()));
 
     if !post.root_id.is_empty() {
-        obj.insert("root_id".into(), AgentValue::string(post.root_id.clone()));
+        obj.insert("root_id".into(), Value::string(post.root_id.clone()));
     }
 
-    obj.insert("create_at".into(), AgentValue::integer(post.create_at));
+    obj.insert("create_at".into(), Value::integer(post.create_at));
 
-    AgentValue::object(obj)
+    Value::object(obj)
 }
 
 // ---------------------------------------------------------------------------
-// MattermostChannelsAgent
+// MattermostChannelsModule
 // ---------------------------------------------------------------------------
 
-/// Agent for listing Mattermost channels in a team.
+/// Module for listing Mattermost channels in a team.
 ///
 /// Lists channels the bot user belongs to. If `team_id` is not configured,
 /// automatically uses the first team the user belongs to.
@@ -380,24 +365,19 @@ fn post_to_agent_value(post: &MattermostPost) -> AgentValue {
     string_config(name = CONFIG_TEAM_ID),
     integer_config(name = CONFIG_LIMIT),
 )]
-struct MattermostChannelsAgent {
-    data: AgentData,
+struct MattermostChannelsModule {
+    data: ModuleData,
 }
 
 #[async_trait]
-impl AsAgent for MattermostChannelsAgent {
-    fn new(ma: ModularAgent, id: String, spec: AgentSpec) -> Result<Self, AgentError> {
+impl AsModule for MattermostChannelsModule {
+    fn new(ma: ModularAgent, id: String, spec: ModuleSpec) -> Result<Self> {
         Ok(Self {
-            data: AgentData::new(ma, id, spec),
+            data: ModuleData::new(ma, id, spec),
         })
     }
 
-    async fn process(
-        &mut self,
-        ctx: AgentContext,
-        _port: String,
-        _value: AgentValue,
-    ) -> Result<(), AgentError> {
+    async fn process(&mut self, ctx: ModuleContext, _port: String, _value: Value) -> Result<()> {
         let config = self.configs()?;
         let limit = config.get_integer_or_default(CONFIG_LIMIT);
         let limit = if limit <= 0 { 100 } else { limit as usize };
@@ -411,45 +391,42 @@ impl AsAgent for MattermostChannelsAgent {
             teams
                 .first()
                 .map(|t| t.id.clone())
-                .ok_or_else(|| AgentError::InvalidValue("No teams found for user".to_string()))?
+                .ok_or_else(|| Error::InvalidValue("No teams found for user".to_string()))?
         } else {
             team_id
         };
 
         let all_channels = client.get_user_channels("me", &team_id).await?;
 
-        let channels: Vector<AgentValue> = all_channels
+        let channels: Vector<Value> = all_channels
             .iter()
             .take(limit)
             .map(|ch| {
                 let mut obj = im::HashMap::new();
-                obj.insert("id".into(), AgentValue::string(ch.id.clone()));
-                obj.insert("name".into(), AgentValue::string(ch.name.clone()));
-                obj.insert(
-                    "is_private".into(),
-                    AgentValue::boolean(ch.channel_type == "P"),
-                );
-                obj.insert("is_archived".into(), AgentValue::boolean(ch.delete_at > 0));
+                obj.insert("id".into(), Value::string(ch.id.clone()));
+                obj.insert("name".into(), Value::string(ch.name.clone()));
+                obj.insert("is_private".into(), Value::boolean(ch.channel_type == "P"));
+                obj.insert("is_archived".into(), Value::boolean(ch.delete_at > 0));
                 if !ch.header.is_empty() {
-                    obj.insert("topic".into(), AgentValue::string(ch.header.clone()));
+                    obj.insert("topic".into(), Value::string(ch.header.clone()));
                 }
                 if !ch.purpose.is_empty() {
-                    obj.insert("purpose".into(), AgentValue::string(ch.purpose.clone()));
+                    obj.insert("purpose".into(), Value::string(ch.purpose.clone()));
                 }
-                AgentValue::object(obj)
+                Value::object(obj)
             })
             .collect();
 
-        self.output(ctx, PORT_CHANNELS, AgentValue::array(channels))
+        self.output(ctx, PORT_CHANNELS, Value::array(channels))
             .await
     }
 }
 
 // ---------------------------------------------------------------------------
-// MattermostListenerAgent
+// MattermostListenerModule
 // ---------------------------------------------------------------------------
 
-/// Agent for listening to Mattermost messages in real-time via WebSocket.
+/// Module for listening to Mattermost messages in real-time via WebSocket.
 ///
 /// Connects to the Mattermost WebSocket API and outputs messages as they arrive.
 /// Automatically reconnects with exponential backoff on disconnection.
@@ -469,8 +446,8 @@ impl AsAgent for MattermostChannelsAgent {
     outputs = [PORT_VALUE],
     string_config(name = CONFIG_CHANNEL_ID),
 )]
-struct MattermostListenerAgent {
-    data: AgentData,
+struct MattermostListenerModule {
+    data: ModuleData,
     shutdown_tx: Option<mpsc::Sender<()>>,
 }
 
@@ -483,15 +460,15 @@ struct ListenerState {
 }
 
 #[async_trait]
-impl AsAgent for MattermostListenerAgent {
-    fn new(ma: ModularAgent, id: String, spec: AgentSpec) -> Result<Self, AgentError> {
+impl AsModule for MattermostListenerModule {
+    fn new(ma: ModularAgent, id: String, spec: ModuleSpec) -> Result<Self> {
         Ok(Self {
-            data: AgentData::new(ma, id, spec),
+            data: ModuleData::new(ma, id, spec),
             shutdown_tx: None,
         })
     }
 
-    async fn start(&mut self) -> Result<(), AgentError> {
+    async fn start(&mut self) -> Result<()> {
         let client = build_client(self.ma())?;
 
         let me = client.get_me().await?;
@@ -573,7 +550,7 @@ impl AsAgent for MattermostListenerAgent {
         Ok(())
     }
 
-    async fn stop(&mut self) -> Result<(), AgentError> {
+    async fn stop(&mut self) -> Result<()> {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(()).await;
         }
@@ -623,9 +600,9 @@ fn handle_ws_message(state: &ListenerState, text: &str) {
     let image: Option<PhotonImage> = None;
 
     if let Some(output) = post_to_listener_output(&post, image)
-        && let Err(e) = state.ma.try_send_agent_out(
+        && let Err(e) = state.ma.try_send_module_out(
             state.id.clone(),
-            AgentContext::new(),
+            ModuleContext::new(),
             PORT_VALUE.to_string(),
             output,
         )
@@ -675,7 +652,7 @@ fn download_first_image_sync(
 fn post_to_listener_output(
     post: &MattermostPost,
     #[allow(unused_variables)] image: Option<PhotonImage>,
-) -> Option<AgentValue> {
+) -> Option<Value> {
     let text = post.message.clone();
     let channel = post.channel_id.clone();
     let post_id = post.id.clone();
@@ -692,14 +669,14 @@ fn post_to_listener_output(
         message.image = image.map(Arc::new);
 
         let mut obj = im::HashMap::new();
-        obj.insert("message".into(), AgentValue::message(message));
-        obj.insert("user".into(), AgentValue::string(user));
-        obj.insert("channel".into(), AgentValue::string(channel));
-        obj.insert("post_id".into(), AgentValue::string(post_id));
+        obj.insert("message".into(), Value::message(message));
+        obj.insert("user".into(), Value::string(user));
+        obj.insert("channel".into(), Value::string(channel));
+        obj.insert("post_id".into(), Value::string(post_id));
         if let Some(root_id) = root_id {
-            obj.insert("root_id".into(), AgentValue::string(root_id));
+            obj.insert("root_id".into(), Value::string(root_id));
         }
-        Some(AgentValue::object(obj))
+        Some(Value::object(obj))
     }
 
     #[cfg(not(feature = "image"))]
@@ -707,75 +684,69 @@ fn post_to_listener_output(
         let message = Message::user(text);
 
         let mut obj = im::HashMap::new();
-        obj.insert("message".into(), AgentValue::message(message));
-        obj.insert("user".into(), AgentValue::string(user));
-        obj.insert("channel".into(), AgentValue::string(channel));
-        obj.insert("post_id".into(), AgentValue::string(post_id));
+        obj.insert("message".into(), Value::message(message));
+        obj.insert("user".into(), Value::string(user));
+        obj.insert("channel".into(), Value::string(channel));
+        obj.insert("post_id".into(), Value::string(post_id));
         if let Some(root_id) = root_id {
-            obj.insert("root_id".into(), AgentValue::string(root_id));
+            obj.insert("root_id".into(), Value::string(root_id));
         }
-        Some(AgentValue::object(obj))
+        Some(Value::object(obj))
     }
 }
 
 // ---------------------------------------------------------------------------
-// MattermostToMessageAgent
+// MattermostToMessageModule
 // ---------------------------------------------------------------------------
 
-/// Agent for converting Mattermost messages to LLM Message format.
+/// Module for converting Mattermost messages to LLM Message format.
 ///
 /// Converts Mattermost message objects (with `text`, `user`, `channel`, `post_id` fields)
-/// into AgentValue::Message format suitable for LLM agents.
+/// into Value::Message format suitable for LLM modules.
 ///
 /// # Ports
 /// - Input `value`: Single message object or array of message objects
-/// - Output `message`: AgentValue::Message or array of AgentValue::Message
+/// - Output `message`: Value::Message or array of Value::Message
 #[modular_agent(
     title = "ToMessage",
     category = CATEGORY,
     inputs = [PORT_VALUE],
     outputs = [PORT_MESSAGE],
 )]
-struct MattermostToMessageAgent {
-    data: AgentData,
+struct MattermostToMessageModule {
+    data: ModuleData,
 }
 
 #[async_trait]
-impl AsAgent for MattermostToMessageAgent {
-    fn new(ma: ModularAgent, id: String, spec: AgentSpec) -> Result<Self, AgentError> {
+impl AsModule for MattermostToMessageModule {
+    fn new(ma: ModularAgent, id: String, spec: ModuleSpec) -> Result<Self> {
         Ok(Self {
-            data: AgentData::new(ma, id, spec),
+            data: ModuleData::new(ma, id, spec),
         })
     }
 
-    async fn process(
-        &mut self,
-        ctx: AgentContext,
-        _port: String,
-        value: AgentValue,
-    ) -> Result<(), AgentError> {
+    async fn process(&mut self, ctx: ModuleContext, _port: String, value: Value) -> Result<()> {
         if value.is_array() {
             let arr = value.as_array().unwrap();
-            let messages: im::Vector<AgentValue> = arr
+            let messages: im::Vector<Value> = arr
                 .iter()
                 .filter_map(|v| value_to_message(v).ok())
-                .map(AgentValue::message)
+                .map(Value::message)
                 .collect();
-            self.output(ctx, PORT_MESSAGE, AgentValue::array(messages))
-                .await
+            self.output(ctx, PORT_MESSAGE, Value::array(messages)).await
         } else {
             let message = value_to_message(&value)?;
-            self.output(ctx, PORT_MESSAGE, AgentValue::message(message))
+            self.output(ctx, PORT_MESSAGE, Value::message(message))
                 .await
         }
     }
 }
 
-fn value_to_message(value: &AgentValue) -> Result<Message, AgentError> {
+fn value_to_message(value: &Value) -> Result<Message> {
     match value {
-        AgentValue::String(s) => Ok(Message::user(s.to_string())),
-        AgentValue::Message(msg) => Ok(Message::clone(msg)),
-        AgentValue::Object(obj) => {
+        Value::String(s) => Ok(Message::user(s.to_string())),
+        Value::Message(msg) => Ok(Message::clone(msg)),
+        Value::Object(obj) => {
             // New format: check for "message" field first
             if let Some(msg) = obj.get("message").and_then(|v| v.as_message()) {
                 return Ok(Message::clone(msg));
@@ -788,7 +759,7 @@ fn value_to_message(value: &AgentValue) -> Result<Message, AgentError> {
                 .to_string();
             Ok(Message::user(text))
         }
-        _ => Err(AgentError::InvalidValue(
+        _ => Err(Error::InvalidValue(
             "Expected string, message, or object for Mattermost message".to_string(),
         )),
     }

@@ -1,6 +1,6 @@
-# Mattermost Agents for Modular Agent
+# Mattermost Modules for Modular Agent
 
-Mattermost integration agents for Modular Agent. Post messages, fetch history, list channels, and listen to real-time events via WebSocket.
+Mattermost integration modules for Modular Agent. Post messages, fetch history, list channels, and listen to real-time events via WebSocket.
 
 English | [日本語](README_ja.md)
 
@@ -31,14 +31,14 @@ Alternatively, create a personal access token at **Profile > Security > Personal
 
 ### Finding IDs
 
-- **Channel ID**: Open the channel, click the channel name header, and copy the ID from the dialog. Or use the Channels agent to list all channels with their IDs.
+- **Channel ID**: Open the channel, click the channel name header, and copy the ID from the dialog. Or use the Channels module to list all channels with their IDs.
 - **Team ID**: Use the API (`GET /api/v4/teams` with your token) or check **System Console > Teams** (admin only).
 
 ## Feature Flags
 
 | Feature | Default | Description |
 | ------- | ------- | ----------- |
-| `image` | Yes | Image upload/download support for Post and Listener agents |
+| `image` | Yes | Image upload/download support for Post and Listener modules |
 
 ## Mattermost/Post
 
@@ -53,11 +53,11 @@ Posts messages to Mattermost channels. Markdown is passed through as-is since Ma
 
 ### Ports
 
-- **Input**: `message` — String, Message, object with `text`/`root_id` fields, array, or image (AgentValue::Image)
+- **Input**: `message` — String, Message, object with `text`/`root_id` fields, array, or image (Value::Image)
 
 ### Image Upload
 
-When an image (AgentValue::Image) or a Message with an attached image is received, the image is uploaded as a PNG file and attached to the post. Requires the `image` feature flag (enabled by default).
+When an image (Value::Image) or a Message with an attached image is received, the image is uploaded as a PNG file and attached to the post. Requires the `image` feature flag (enabled by default).
 
 ### Thread Replies
 
@@ -101,7 +101,7 @@ Lists channels the bot user belongs to. If `team_id` is not configured, automati
 
 ## Mattermost/Listener
 
-Source agent (no inputs). Listens to Mattermost messages in real-time via WebSocket. Starts listening when the workflow starts and outputs messages as they arrive. Automatically reconnects with exponential backoff (1s to 30s) on disconnection. Stops retrying on authentication failure.
+Source module (no inputs). Listens to Mattermost messages in real-time via WebSocket. Starts listening when the workflow starts and outputs messages as they arrive. Automatically reconnects with exponential backoff (1s to 30s) on disconnection. Stops retrying on authentication failure.
 
 ### Configuration
 
@@ -115,12 +115,12 @@ Source agent (no inputs). Listens to Mattermost messages in real-time via WebSoc
 
 ## Mattermost/ToMessage
 
-Converts Mattermost message objects into AgentValue::Message format suitable for LLM agents.
+Converts Mattermost message objects into Value::Message format suitable for LLM modules.
 
 ### Ports
 
 - **Input**: `value` — Single message object or array of message objects
-- **Output**: `message` — AgentValue::Message or array of AgentValue::Message
+- **Output**: `message` — Value::Message or array of Value::Message
 
 ## Architecture
 

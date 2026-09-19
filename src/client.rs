@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
-use modular_agent_core::AgentError;
+use modular_agent_core::Error;
+use modular_agent_core::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -126,7 +127,7 @@ pub struct MattermostClient {
 }
 
 impl MattermostClient {
-    pub fn new(server_url: &str, token: &str) -> Result<Self, AgentError> {
+    pub fn new(server_url: &str, token: &str) -> Result<Self> {
         let base_url = server_url.trim_end_matches('/').to_string();
         let base_url = if base_url.ends_with("/api/v4") {
             base_url
@@ -136,7 +137,7 @@ impl MattermostClient {
 
         let http = Client::builder()
             .build()
-            .map_err(|e| AgentError::IoError(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("Failed to create HTTP client: {}", e)))?;
 
         Ok(Self {
             http,
@@ -162,42 +163,39 @@ impl MattermostClient {
     // -----------------------------------------------------------------------
 
     /// Get current authenticated user.
-    pub async fn get_me(&self) -> Result<MattermostUser, AgentError> {
+    pub async fn get_me(&self) -> Result<MattermostUser> {
         let resp = self
             .http
             .get(self.url("/users/me"))
             .header("Authorization", self.auth_header())
             .send()
             .await
-            .map_err(|e| AgentError::IoError(format!("GET /users/me failed: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("GET /users/me failed: {}", e)))?;
 
         Self::check_response(&resp)?;
         resp.json::<MattermostUser>()
             .await
-            .map_err(|e| AgentError::IoError(format!("Failed to parse user response: {}", e)))
+            .map_err(|e| Error::IoError(format!("Failed to parse user response: {}", e)))
     }
 
     /// Get teams for current user.
-    pub async fn get_user_teams(&self) -> Result<Vec<MattermostTeam>, AgentError> {
+    pub async fn get_user_teams(&self) -> Result<Vec<MattermostTeam>> {
         let resp = self
             .http
             .get(self.url("/users/me/teams"))
             .header("Authorization", self.auth_header())
             .send()
             .await
-            .map_err(|e| AgentError::IoError(format!("GET /users/me/teams failed: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("GET /users/me/teams failed: {}", e)))?;
 
         Self::check_response(&resp)?;
         resp.json::<Vec<MattermostTeam>>()
             .await
-            .map_err(|e| AgentError::IoError(format!("Failed to parse teams response: {}", e)))
+            .map_err(|e| Error::IoError(format!("Failed to parse teams response: {}", e)))
     }
 
     /// Create a post in a channel.
-    pub async fn create_post(
-        &self,
-        request: &CreatePostRequest,
-    ) -> Result<MattermostPost, AgentError> {
+    pub async fn create_post(&self, request: &CreatePostRequest) -> Result<MattermostPost> {
         let resp = self
             .http
             .post(self.url("/posts"))
@@ -205,12 +203,12 @@ impl MattermostClient {
             .json(request)
             .send()
             .await
-            .map_err(|e| AgentError::IoError(format!("POST /posts failed: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("POST /posts failed: {}", e)))?;
 
         Self::check_response(&resp)?;
         resp.json::<MattermostPost>()
             .await
-            .map_err(|e| AgentError::IoError(format!("Failed to parse post response: {}", e)))
+            .map_err(|e| Error::IoError(format!("Failed to parse post response: {}", e)))
     }
 
     /// Get posts for a channel, ordered by most recent first.
@@ -218,7 +216,7 @@ impl MattermostClient {
         &self,
         channel_id: &str,
         per_page: u16,
-    ) -> Result<Vec<MattermostPost>, AgentError> {
+    ) -> Result<Vec<MattermostPost>> {
         let resp = self
             .http
             .get(self.url(&format!("/channels/{}/posts", channel_id)))
@@ -227,13 +225,14 @@ impl MattermostClient {
             .send()
             .await
             .map_err(|e| {
-                AgentError::IoError(format!("GET /channels/{}/posts failed: {}", channel_id, e))
+                Error::IoError(format!("GET /channels/{}/posts failed: {}", channel_id, e))
             })?;
 
         Self::check_response(&resp)?;
-        let post_list = resp.json::<PostList>().await.map_err(|e| {
-            AgentError::IoError(format!("Failed to parse post list response: {}", e))
-        })?;
+        let post_list = resp
+            .json::<PostList>()
+            .await
+            .map_err(|e| Error::IoError(format!("Failed to parse post list response: {}", e)))?;
 
         // Reconstruct ordered list from order + posts map
         debug!(
@@ -257,19 +256,19 @@ impl MattermostClient {
         &self,
         user_id: &str,
         team_id: &str,
-    ) -> Result<Vec<MattermostChannel>, AgentError> {
+    ) -> Result<Vec<MattermostChannel>> {
         let resp = self
             .http
             .get(self.url(&format!("/users/{}/teams/{}/channels", user_id, team_id)))
             .header("Authorization", self.auth_header())
             .send()
             .await
-            .map_err(|e| AgentError::IoError(format!("GET user channels failed: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("GET user channels failed: {}", e)))?;
 
         Self::check_response(&resp)?;
         resp.json::<Vec<MattermostChannel>>()
             .await
-            .map_err(|e| AgentError::IoError(format!("Failed to parse channels response: {}", e)))
+            .map_err(|e| Error::IoError(format!("Failed to parse channels response: {}", e)))
     }
 
     /// Upload a file to a channel (multipart).
@@ -280,11 +279,11 @@ impl MattermostClient {
         filename: &str,
         bytes: Vec<u8>,
         content_type: &str,
-    ) -> Result<FileUploadResponse, AgentError> {
+    ) -> Result<FileUploadResponse> {
         let file_part = reqwest::multipart::Part::bytes(bytes)
             .file_name(filename.to_string())
             .mime_str(content_type)
-            .map_err(|e| AgentError::IoError(format!("Failed to create multipart part: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("Failed to create multipart part: {}", e)))?;
 
         let form = reqwest::multipart::Form::new()
             .text("channel_id", channel_id.to_string())
@@ -297,49 +296,47 @@ impl MattermostClient {
             .multipart(form)
             .send()
             .await
-            .map_err(|e| AgentError::IoError(format!("POST /files failed: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("POST /files failed: {}", e)))?;
 
         Self::check_response(&resp)?;
-        resp.json::<FileUploadResponse>().await.map_err(|e| {
-            AgentError::IoError(format!("Failed to parse file upload response: {}", e))
-        })
+        resp.json::<FileUploadResponse>()
+            .await
+            .map_err(|e| Error::IoError(format!("Failed to parse file upload response: {}", e)))
     }
 
     /// Download a file by its ID.
     #[cfg(feature = "image")]
-    pub async fn download_file(&self, file_id: &str) -> Result<Vec<u8>, AgentError> {
+    pub async fn download_file(&self, file_id: &str) -> Result<Vec<u8>> {
         let resp = self
             .http
             .get(self.url(&format!("/files/{}", file_id)))
             .header("Authorization", self.auth_header())
             .send()
             .await
-            .map_err(|e| AgentError::IoError(format!("GET /files/{} failed: {}", file_id, e)))?;
+            .map_err(|e| Error::IoError(format!("GET /files/{} failed: {}", file_id, e)))?;
 
         Self::check_response(&resp)?;
         resp.bytes()
             .await
             .map(|b| b.to_vec())
-            .map_err(|e| AgentError::IoError(format!("Failed to read file bytes: {}", e)))
+            .map_err(|e| Error::IoError(format!("Failed to read file bytes: {}", e)))
     }
 
     /// Get file info by its ID (to check mime type).
     #[cfg(feature = "image")]
-    pub async fn get_file_info(&self, file_id: &str) -> Result<FileInfo, AgentError> {
+    pub async fn get_file_info(&self, file_id: &str) -> Result<FileInfo> {
         let resp = self
             .http
             .get(self.url(&format!("/files/{}/info", file_id)))
             .header("Authorization", self.auth_header())
             .send()
             .await
-            .map_err(|e| {
-                AgentError::IoError(format!("GET /files/{}/info failed: {}", file_id, e))
-            })?;
+            .map_err(|e| Error::IoError(format!("GET /files/{}/info failed: {}", file_id, e)))?;
 
         Self::check_response(&resp)?;
         resp.json::<FileInfo>()
             .await
-            .map_err(|e| AgentError::IoError(format!("Failed to parse file info response: {}", e)))
+            .map_err(|e| Error::IoError(format!("Failed to parse file info response: {}", e)))
     }
 
     // -----------------------------------------------------------------------
@@ -350,13 +347,12 @@ impl MattermostClient {
     /// Returns the authenticated read half of the stream.
     pub async fn connect_websocket(
         &self,
-    ) -> Result<SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>, AgentError>
-    {
+    ) -> Result<SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>> {
         let ws_url = self.websocket_url()?;
 
         let (ws_stream, _) = connect_async(&ws_url)
             .await
-            .map_err(|e| AgentError::IoError(format!("WebSocket connection failed: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("WebSocket connection failed: {}", e)))?;
 
         let (mut write, mut read) = ws_stream.split();
 
@@ -369,22 +365,21 @@ impl MattermostClient {
             },
         };
         let auth_json = serde_json::to_string(&auth)
-            .map_err(|e| AgentError::IoError(format!("Failed to serialize auth: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("Failed to serialize auth: {}", e)))?;
 
         write
             .send(WsMessage::Text(auth_json.into()))
             .await
-            .map_err(|e| AgentError::IoError(format!("Failed to send auth challenge: {}", e)))?;
+            .map_err(|e| Error::IoError(format!("Failed to send auth challenge: {}", e)))?;
 
         // Read auth response
         if let Some(msg) = read.next().await {
-            let msg =
-                msg.map_err(|e| AgentError::IoError(format!("WebSocket read error: {}", e)))?;
+            let msg = msg.map_err(|e| Error::IoError(format!("WebSocket read error: {}", e)))?;
             if let WsMessage::Text(text) = msg
                 && let Ok(event) = serde_json::from_str::<WsEvent>(&text)
                 && event.status.as_deref() == Some("FAIL")
             {
-                return Err(AgentError::IoError(
+                return Err(Error::IoError(
                     "WebSocket authentication failed".to_string(),
                 ));
             }
@@ -393,15 +388,15 @@ impl MattermostClient {
         Ok(read)
     }
 
-    fn websocket_url(&self) -> Result<String, AgentError> {
+    fn websocket_url(&self) -> Result<String> {
         let parsed = Url::parse(&self.base_url)
-            .map_err(|e| AgentError::InvalidConfig(format!("Invalid server URL: {}", e)))?;
+            .map_err(|e| Error::InvalidConfig(format!("Invalid server URL: {}", e)))?;
 
         let scheme = match parsed.scheme() {
             "https" => "wss",
             "http" => "ws",
             other => {
-                return Err(AgentError::InvalidConfig(format!(
+                return Err(Error::InvalidConfig(format!(
                     "Unsupported URL scheme: {}",
                     other
                 )));
@@ -410,7 +405,7 @@ impl MattermostClient {
 
         let host = parsed
             .host_str()
-            .ok_or_else(|| AgentError::InvalidConfig("Missing host in server URL".to_string()))?;
+            .ok_or_else(|| Error::InvalidConfig("Missing host in server URL".to_string()))?;
 
         let port = parsed.port().map(|p| format!(":{}", p)).unwrap_or_default();
 
@@ -421,11 +416,11 @@ impl MattermostClient {
     // Helpers
     // -----------------------------------------------------------------------
 
-    fn check_response(resp: &reqwest::Response) -> Result<(), AgentError> {
+    fn check_response(resp: &reqwest::Response) -> Result<()> {
         if resp.status().is_success() {
             return Ok(());
         }
-        Err(AgentError::IoError(format!(
+        Err(Error::IoError(format!(
             "Mattermost API error: HTTP {}",
             resp.status()
         )))
