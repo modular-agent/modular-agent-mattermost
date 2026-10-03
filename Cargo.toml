@@ -1,6 +1,6 @@
 [package]
 name = "modular-agent-mattermost"
-version = "0.6.0"
+version = "0.7.0"
 description = "Mattermost Modules for Modular Agent"
 authors = ["Akira Ishino <akira@lumilab.jp>"]
 edition = "2024"
